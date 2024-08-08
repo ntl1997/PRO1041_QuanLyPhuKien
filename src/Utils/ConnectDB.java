@@ -21,7 +21,7 @@ public class ConnectDB {
                 + "trustServerCertificate=true";
         try {
             con = DriverManager.getConnection(strDbUrl);
-            System.out.println("Ket Noi Thanh Cong");
+//            System.out.println("Ket Noi Thanh Cong");
         } catch (SQLException e) {
             System.out.println("Connect Loi: " + e);
         }

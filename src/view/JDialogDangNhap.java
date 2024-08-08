@@ -8,6 +8,7 @@ import Dao.TaiKhoanDao;
 import Entity.TAIKHOAN;
 import Utils.Auth;
 import Utils.MsgBox;
+import Utils.XImage;
 import java.awt.Frame;
 
 /**
@@ -26,6 +27,7 @@ public class JDialogDangNhap extends javax.swing.JDialog {
         super(parent, modal);
         initComponents();
         setLocationRelativeTo(null);
+        setIconImage(XImage.getAppIcon());
         setTitle("TechZone Đăng Nhập");
     }
 

@@ -8,8 +8,35 @@
 <!-- You can turn off the Compile on Save (or Deploy on Save) setting -->
 <!-- in the project's Project Properties dialog box.-->
 <project name="DuPhong" default="default" basedir=".">
-    <description>Builds, tests, and runs the project DuPhong.</description>
+        <description>Builds, tests, and runs the project DuPhong.</description>
+
+    <!-- Define the classpath to include libraries -->
+    <path id="project.classpath">
+        <fileset dir="src/lib">
+            <include name="*.jar"/>
+        </fileset>
+    </path>
+
+    <target name="-pre-compile">
+        <!-- Ensure build/classes directory exists -->
+        <mkdir dir="build/classes"/>
+    </target>
+
+    <target name="compile" depends="-pre-compile">
+        <javac srcdir="src" destdir="build/classes" classpathref="project.classpath"/>
+    </target>
+
+    <target name="run" depends="compile">
+        <java classname="com.yourpackage.MainClass" fork="true">
+            <classpath>
+                <path refid="project.classpath"/>
+                <pathelement path="build/classes"/>
+            </classpath>
+        </java>
+    </target>
+
     <import file="nbproject/build-impl.xml"/>
+
     <!--
 
     There exist several targets which are by default empty and which can be 

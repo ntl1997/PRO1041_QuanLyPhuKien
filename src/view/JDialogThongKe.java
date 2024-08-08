@@ -36,6 +36,8 @@ public class JDialogThongKe extends javax.swing.JDialog {
         getDoanhThuToday();
         getDoanhThuThisMonth();
         getDoanhThuThisYear();
+        jdcStart.getDateEditor().setEnabled(false);
+        jdcEnd.getDateEditor().setEnabled(false);
     }
     private void fillComboBoxNam1(){
         DefaultComboBoxModel model = (DefaultComboBoxModel) cboNam1.getModel();
