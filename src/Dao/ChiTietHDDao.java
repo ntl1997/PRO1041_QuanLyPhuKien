@@ -91,8 +91,8 @@ public class ChiTietHDDao extends TechZoneDao<CHITIETHOADON, Integer> {
         List<CHITIETHOADON> list = selectBySql(sql, maHD, maSP);
         return !list.isEmpty() ? list.get(0) : null;
     }
-    public void deleteByMaHD_MaSP(int maHD, int maSP) {
-        String sql = "DELETE FROM CHITIETHOADON WHERE MaHD = ? AND MaSP = ?";
-        XJdbc.update(sql, maHD, maSP);
+    public void deleteByMaHD_MaSP(int id, int maSP) {
+        String sql = "DELETE FROM CHITIETHOADON WHERE ID_HDCT = ? AND MAHD = ?";
+        XJdbc.update(sql, id, maSP);
     }
 }
