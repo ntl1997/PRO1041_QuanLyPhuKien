@@ -4,6 +4,7 @@
  */
 package View;
 
+import view.QRCodeScannerCallback;
 import java.util.*;
 import Dao.ChiTietHDDao;
 import Dao.HangSXDao;
@@ -18,15 +19,17 @@ import Utils.MsgBox;
 import Utils.XDate;
 import Utils.XImage;
 import java.awt.event.KeyEvent;
+import java.io.IOException;
 import java.time.LocalDate;
 import javax.swing.event.TableModelEvent;
 import javax.swing.table.DefaultTableModel;
+import view.ScanQRProduct;
 
 /**
  *
  * @author Tun
  */
-public class JDialogBanHang extends javax.swing.JDialog {
+public class JDialogBanHang extends javax.swing.JDialog implements QRCodeScannerCallback {
 
     SanPhamDao spdao = new SanPhamDao();
     LoaiPKDao lpkdao = new LoaiPKDao();
@@ -60,6 +63,41 @@ public class JDialogBanHang extends javax.swing.JDialog {
         });
     }
 
+    private void openQRScanner() {
+        try {
+            ScanQRProduct qr = new ScanQRProduct(this, true, new QRCodeScannerCallback() {
+                @Override
+                public void onQRCodeScanned(int qrCodeData) {
+                    try {
+                        addProductByQRToCart(qrCodeData);
+                    } catch (NumberFormatException e) {
+                        MsgBox.alert(JDialogBanHang.this, "Dữ liệu QR không hợp lệ.");
+                    }
+                }
+            });
+            qr.setLocationRelativeTo(this); // Đặt vị trí của JDialog sao cho nó nằm giữa JDialogBanHang
+            qr.setVisible(true);
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    private void addProductByQRToCart(int maSP) {
+        int hdRow = tblHoaDon.getSelectedRow();
+        boolean productFound = false;
+        for (int i = 0; i < tblSanPham.getRowCount(); i++) {
+            int maSPFromTable = (int) tblSanPham.getValueAt(i, 0);
+            if (maSP == maSPFromTable) {
+                this.addToCart(hdRow, i);
+                productFound = true;
+                break;
+            }
+        }
+        if (!productFound) {
+            MsgBox.alert(this, "Sản phẩm không tồn tại trong danh sách");
+        }
+    }
+
     // Đổ dữ liệu lên bảng Sản Phẩm
     private void fillTableSanPham() {
         DefaultTableModel model = (DefaultTableModel) tblSanPham.getModel();
@@ -89,6 +127,7 @@ public class JDialogBanHang extends javax.swing.JDialog {
         for (CHITIETHOADON cthd : list) {
             SANPHAM sp = spdao.selectById(cthd.getMASP());
             Object[] data = {
+                cthd.getID_HDCT(),
                 cthd.getMASP(),
                 sp.getTENSP(),
                 cthd.getGIABAN(),
@@ -158,31 +197,24 @@ public class JDialogBanHang extends javax.swing.JDialog {
         int maHD = (int) tblHoaDon.getValueAt(hdRow, 0);
         int maSP = (int) tblSanPham.getValueAt(spRow, 0);
         int slTon = (int) tblSanPham.getValueAt(spRow, 3);
-
-        boolean isInCart = false;
-
-        // Kiểm tra sản phẩm đã có trong giỏ hàng chưa
+        // CÁCH 1 DÙNG MAP (key-value)
+        Map<Integer, Integer> cart = new HashMap<>();
         for (int i = 0; i < tblGioHang.getRowCount(); i++) {
-            int maSP_GioHang = (int) tblGioHang.getValueAt(i, 0);
-            int sl_GioHang = (int) tblGioHang.getValueAt(i, 3);
-
-            if (maSP_GioHang == maSP) {
-                isInCart = true;
-
-                if (sl_GioHang < slTon) {
-                    CHITIETHOADON cthd = ctdao.selectByMaHD_MaSP(maHD, maSP);
-                    int soluong = sl_GioHang + 1;
-                    cthd.setSOLUONG(soluong);
-                    ctdao.update(cthd);
-                } else {
-                    MsgBox.alert(this, "Sản phẩm này hiện đang hết hàng");
-                }
-                break; // Thoát khỏi vòng lặp khi đã cập nhật số lượng
-            }
+            cart.put((int) tblGioHang.getValueAt(i, 1), (int) tblGioHang.getValueAt(i, 4));
         }
 
-        // Nếu sản phẩm chưa có trong giỏ hàng, thêm mới
-        if (!isInCart) {
+        if (cart.containsKey(maSP)) {
+            int sl_GioHang = cart.get(maSP);
+
+            if (sl_GioHang < slTon) {
+                CHITIETHOADON cthd = ctdao.selectByMaHD_MaSP(maHD, maSP);
+                int soluong = sl_GioHang + 1;
+                cthd.setSOLUONG(soluong);
+                ctdao.update(cthd);
+            } else {
+                MsgBox.alert(this, "Sản phẩm này hiện đang hết hàng");
+            }
+        } else {
             CHITIETHOADON cthd = new CHITIETHOADON();
             float giaBan = (float) tblSanPham.getValueAt(spRow, 2);
             cthd.setMAHD(maHD);
@@ -194,17 +226,57 @@ public class JDialogBanHang extends javax.swing.JDialog {
             ctdao.insert(cthd);
         }
 
-        // Cập nhật lại bảng giỏ hàng và tổng tiền
         this.fillTableGioHang(hdRow);
         updateThanhTien(hdRow);
         setForm(hdRow);
+//        // CÁCH 2
+//        boolean isInCart = false;
+//          
+//        // Kiểm tra sản phẩm đã có trong giỏ hàng chưa
+//        for (int i = 0; i < tblGioHang.getRowCount(); i++) {
+//            int maSP_GioHang = (int) tblGioHang.getValueAt(i, 1);
+//            int sl_GioHang = (int) tblGioHang.getValueAt(i, 4);
+//
+//            if (maSP_GioHang == maSP) {
+//                isInCart = true;
+//
+//                if (sl_GioHang < slTon) {
+//                    CHITIETHOADON cthd = ctdao.selectByMaHD_MaSP(maHD, maSP);
+//                    int soluong = sl_GioHang + 1;
+//                    cthd.setSOLUONG(soluong);
+//                    ctdao.update(cthd);
+//                } else {
+//                    MsgBox.alert(this, "Sản phẩm này hiện đang hết hàng");
+//                }
+//                break; // Thoát khỏi vòng lặp khi đã cập nhật số lượng
+//            }
+//        }
+//
+//        // Nếu sản phẩm chưa có trong giỏ hàng, thêm mới
+//        if (!isInCart) {
+//            CHITIETHOADON cthd = new CHITIETHOADON();
+//            float giaBan = (float) tblSanPham.getValueAt(spRow, 2);
+//            cthd.setMAHD(maHD);
+//            cthd.setMASP(maSP);
+//            cthd.setSOLUONG(1);
+//            cthd.setGIABAN(giaBan);
+//            Date ngayTao = XDate.toDate(LocalDate.now().toString(), "yyyy-MM-dd");
+//            cthd.setNGAYLAP(ngayTao);
+//            ctdao.insert(cthd);
+//        }
+//
+//        // Cập nhật lại bảng giỏ hàng và tổng tiền
+//        this.fillTableGioHang(hdRow);
+//        updateThanhTien(hdRow);
+//        setForm(hdRow);
+//        //
     }
 
     // XÓA SẢN PHẨM KHỎI GIỎ HÀNG
-    private void removeToCart(int hdRow, int spRow) {
-        int maHD = (int) tblHoaDon.getValueAt(hdRow, 0);
-        int maSP = (int) tblGioHang.getValueAt(spRow, 0);
-        ctdao.deleteByMaHD_MaSP(maHD, maSP);
+    private void removeToCart(int hdRow, int ghRow) {
+//        int maHD = (int) tblHoaDon.getValueAt(hdRow, 0);
+        int id = (int) tblGioHang.getValueAt(ghRow, 0);
+        ctdao.delete(id);
         fillTableGioHang(hdRow);
         updateThanhTien(hdRow);
         setForm(hdRow);
@@ -257,7 +329,7 @@ public class JDialogBanHang extends javax.swing.JDialog {
     private float getThanhTien() {
         float thanhTien = 0;
         for (int i = 0; i < tblGioHang.getRowCount(); i++) {
-            thanhTien += (float) tblGioHang.getValueAt(i, 4);
+            thanhTien += (float) tblGioHang.getValueAt(i, 5);
         }
         return thanhTien;
     }
@@ -321,7 +393,7 @@ public class JDialogBanHang extends javax.swing.JDialog {
         txtKhachCanTra.setText("");
         txtTienKhachDua.setText("");
         txtTienThua.setText("");
-        
+
         txtTongTien.setText("");
         txtTruTienGiamGia.setText("");
     }
@@ -361,7 +433,6 @@ public class JDialogBanHang extends javax.swing.JDialog {
         jLabel13 = new javax.swing.JLabel();
         jScrollPane1 = new javax.swing.JScrollPane();
         tblHoaDon = new javax.swing.JTable();
-        btnScan = new javax.swing.JButton();
         jPanel4 = new javax.swing.JPanel();
         jLabel14 = new javax.swing.JLabel();
         txtTenKH = new javax.swing.JTextField();
@@ -388,10 +459,10 @@ public class JDialogBanHang extends javax.swing.JDialog {
         btnThanhToan = new javax.swing.JButton();
         jScrollPane3 = new javax.swing.JScrollPane();
         tblSanPham = new javax.swing.JTable();
-        jPanel3 = new javax.swing.JPanel();
         btnThem = new javax.swing.JButton();
         btnXoa = new javax.swing.JButton();
         spnSoLuong = new javax.swing.JSpinner();
+        jButton1 = new javax.swing.JButton();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
 
@@ -416,21 +487,37 @@ public class JDialogBanHang extends javax.swing.JDialog {
 
         tblGioHang.setModel(new javax.swing.table.DefaultTableModel(
             new Object [][] {
-                {null, null, null, null, null},
-                {null, null, null, null, null},
-                {null, null, null, null, null},
-                {null, null, null, null, null}
+                {null, null, null, null, null, null},
+                {null, null, null, null, null, null},
+                {null, null, null, null, null, null},
+                {null, null, null, null, null, null}
             },
             new String [] {
-                "MÃ SP", "TÊN SP", "GIÁ TIỀN", "SỐ LƯỢNG", "THÀNH TIỀN"
+                "ID", "MÃ SP", "TÊN SP", "GIÁ TIỀN", "SỐ LƯỢNG", "THÀNH TIỀN"
             }
-        ));
+        ) {
+            boolean[] canEdit = new boolean [] {
+                false, false, false, false, true, false
+            };
+
+            public boolean isCellEditable(int rowIndex, int columnIndex) {
+                return canEdit [columnIndex];
+            }
+        });
         tblGioHang.addMouseListener(new java.awt.event.MouseAdapter() {
             public void mouseClicked(java.awt.event.MouseEvent evt) {
                 tblGioHangMouseClicked(evt);
             }
         });
         jScrollPane2.setViewportView(tblGioHang);
+        if (tblGioHang.getColumnModel().getColumnCount() > 0) {
+            tblGioHang.getColumnModel().getColumn(0).setResizable(false);
+            tblGioHang.getColumnModel().getColumn(0).setPreferredWidth(10);
+            tblGioHang.getColumnModel().getColumn(1).setResizable(false);
+            tblGioHang.getColumnModel().getColumn(2).setResizable(false);
+            tblGioHang.getColumnModel().getColumn(3).setResizable(false);
+            tblGioHang.getColumnModel().getColumn(5).setResizable(false);
+        }
 
         jLabel12.setFont(new java.awt.Font("Segoe UI Semibold", 0, 14)); // NOI18N
         jLabel12.setForeground(new java.awt.Color(255, 255, 255));
@@ -458,11 +545,6 @@ public class JDialogBanHang extends javax.swing.JDialog {
         });
         jScrollPane1.setViewportView(tblHoaDon);
 
-        btnScan.setBackground(new java.awt.Color(0, 255, 204));
-        btnScan.setFont(new java.awt.Font("Segoe UI Semibold", 0, 12)); // NOI18N
-        btnScan.setIcon(new javax.swing.ImageIcon(getClass().getResource("/icons/12_1.png"))); // NOI18N
-        btnScan.setText("QUÉT");
-
         jLabel14.setText("TÊN KH");
 
         jLabel15.setText("SĐT");
@@ -479,9 +561,21 @@ public class JDialogBanHang extends javax.swing.JDialog {
 
         jLabel18.setText("Tổng tiền:");
 
+        txtTongTien.setEditable(false);
+        txtTongTien.setFont(new java.awt.Font("Segoe UI", 1, 12)); // NOI18N
+        txtTongTien.setForeground(new java.awt.Color(255, 0, 51));
+
         jLabel19.setText("Trừ tiền giảm giá");
 
+        txtTruTienGiamGia.setEditable(false);
+        txtTruTienGiamGia.setFont(new java.awt.Font("Segoe UI", 1, 12)); // NOI18N
+        txtTruTienGiamGia.setForeground(new java.awt.Color(255, 0, 0));
+
         jLabel20.setText("Khách cần trả");
+
+        txtKhachCanTra.setEditable(false);
+        txtKhachCanTra.setFont(new java.awt.Font("Segoe UI", 1, 12)); // NOI18N
+        txtKhachCanTra.setForeground(new java.awt.Color(255, 0, 0));
 
         jLabel21.setText("HT Thanh Toán");
 
@@ -496,11 +590,22 @@ public class JDialogBanHang extends javax.swing.JDialog {
 
         jLabel23.setText("Tiền thừa");
 
+        txtTienKhachDua.setFont(new java.awt.Font("Segoe UI", 1, 12)); // NOI18N
+        txtTienKhachDua.setForeground(new java.awt.Color(255, 0, 0));
+        txtTienKhachDua.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                txtTienKhachDuaActionPerformed(evt);
+            }
+        });
         txtTienKhachDua.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyPressed(java.awt.event.KeyEvent evt) {
                 txtTienKhachDuaKeyPressed(evt);
             }
         });
+
+        txtTienThua.setEditable(false);
+        txtTienThua.setFont(new java.awt.Font("Segoe UI", 1, 12)); // NOI18N
+        txtTienThua.setForeground(new java.awt.Color(255, 0, 51));
 
         btnHuy.setBackground(new java.awt.Color(255, 102, 102));
         btnHuy.setFont(new java.awt.Font("Segoe UI Semibold", 0, 10)); // NOI18N
@@ -680,17 +785,6 @@ public class JDialogBanHang extends javax.swing.JDialog {
             tblSanPham.getColumnModel().getColumn(5).setResizable(false);
         }
 
-        javax.swing.GroupLayout jPanel3Layout = new javax.swing.GroupLayout(jPanel3);
-        jPanel3.setLayout(jPanel3Layout);
-        jPanel3Layout.setHorizontalGroup(
-            jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 157, Short.MAX_VALUE)
-        );
-        jPanel3Layout.setVerticalGroup(
-            jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 100, Short.MAX_VALUE)
-        );
-
         btnThem.setIcon(new javax.swing.ImageIcon(getClass().getResource("/icons/24_1.png"))); // NOI18N
         btnThem.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
@@ -705,23 +799,19 @@ public class JDialogBanHang extends javax.swing.JDialog {
             }
         });
 
+        jButton1.setText("SCAN");
+        jButton1.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                jButton1MouseClicked(evt);
+            }
+        });
+
         javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
         jPanel1.setLayout(jPanel1Layout);
         jPanel1Layout.setHorizontalGroup(
             jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(jPanel1Layout.createSequentialGroup()
                 .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addGroup(jPanel1Layout.createSequentialGroup()
-                        .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                        .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel1Layout.createSequentialGroup()
-                                .addComponent(btnScan)
-                                .addGap(84, 84, 84))
-                            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel1Layout.createSequentialGroup()
-                                .addComponent(jLabel11)
-                                .addGap(51, 51, 51)))
-                        .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addGap(105, 105, 105))
                     .addGroup(jPanel1Layout.createSequentialGroup()
                         .addGap(32, 32, 32)
                         .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
@@ -743,8 +833,13 @@ public class JDialogBanHang extends javax.swing.JDialog {
                                     .addComponent(jLabel13)
                                     .addGap(268, 268, 268)
                                     .addComponent(jLabel9)))
-                            .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 482, javax.swing.GroupLayout.PREFERRED_SIZE))
-                        .addGap(43, 43, 43)))
+                            .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 482, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                    .addGroup(jPanel1Layout.createSequentialGroup()
+                        .addGap(164, 164, 164)
+                        .addComponent(jLabel11)
+                        .addGap(31, 31, 31)
+                        .addComponent(jButton1)))
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                 .addComponent(jPanel4, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addGap(29, 29, 29))
         );
@@ -759,7 +854,7 @@ public class JDialogBanHang extends javax.swing.JDialog {
                 .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addGroup(jPanel1Layout.createSequentialGroup()
                         .addComponent(jPanel4, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addContainerGap())
+                        .addContainerGap(76, Short.MAX_VALUE))
                     .addGroup(jPanel1Layout.createSequentialGroup()
                         .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 123, javax.swing.GroupLayout.PREFERRED_SIZE)
                         .addGap(18, 18, 18)
@@ -778,17 +873,11 @@ public class JDialogBanHang extends javax.swing.JDialog {
                                     .addComponent(jButton12, javax.swing.GroupLayout.PREFERRED_SIZE, 22, javax.swing.GroupLayout.PREFERRED_SIZE))
                                 .addGap(18, 18, 18)
                                 .addComponent(jScrollPane3, javax.swing.GroupLayout.PREFERRED_SIZE, 151, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                                    .addGroup(jPanel1Layout.createSequentialGroup()
-                                        .addGap(61, 61, 61)
-                                        .addComponent(jLabel11)
-                                        .addGap(18, 18, 18)
-                                        .addComponent(btnScan)
-                                        .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                                    .addGroup(jPanel1Layout.createSequentialGroup()
-                                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 25, Short.MAX_VALUE)
-                                        .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                        .addGap(33, 33, 33))))
+                                .addGap(44, 44, 44)
+                                .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                                    .addComponent(jLabel11)
+                                    .addComponent(jButton1))
+                                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                             .addGroup(jPanel1Layout.createSequentialGroup()
                                 .addComponent(btnThem)
                                 .addGap(0, 0, Short.MAX_VALUE))))))
@@ -860,10 +949,11 @@ public class JDialogBanHang extends javax.swing.JDialog {
 
     private void btnXoaActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnXoaActionPerformed
         // TODO add your handling code here:
-        int spRow = (int) tblSanPham.getSelectedRow();
+//        int spRow = (int) tblSanPham.getSelectedRow();
         int hdRow = (int) tblHoaDon.getSelectedRow();
-        if (spRow >= 0 && hdRow >= 0) {
-            removeToCart(hdRow, spRow);
+        int ghRow = (int) tblGioHang.getSelectedRow();
+        if (ghRow >= 0 && hdRow >= 0) {
+            removeToCart(hdRow, ghRow);
         }
     }//GEN-LAST:event_btnXoaActionPerformed
 
@@ -895,7 +985,12 @@ public class JDialogBanHang extends javax.swing.JDialog {
                 try {
                     float tienKhachDua = Float.parseFloat(txtTienKhachDua.getText());
                     float khachCanTra = Float.parseFloat(txtKhachCanTra.getText());
-                    float tienThua = tienKhachDua - khachCanTra;
+                    float tienThua = 0;
+                    if (tienKhachDua <=0 || tienKhachDua < khachCanTra) {
+                        MsgBox.alert(this, "Bạn cần nhập đúng định dạng số tiền");
+                    } else {
+                         tienThua= tienKhachDua - khachCanTra;
+                    }
                     txtTienThua.setText(String.valueOf(tienThua));
                 } catch (NumberFormatException e) {
                     MsgBox.alert(this, "Mời nhập đúng số tiền (VNĐ)");
@@ -913,9 +1008,9 @@ public class JDialogBanHang extends javax.swing.JDialog {
                 int hdRow = tblHoaDon.getSelectedRow();
 
                 if (ghRow >= 0) {
-                    int maSP = (int) tblGioHang.getValueAt(ghRow, 0);
+                    int maSP = (int) tblGioHang.getValueAt(ghRow, 1);
                     int maHD = (int) tblHoaDon.getValueAt(hdRow, 0);
-                    int sl_gioHang = Integer.parseInt(model.getValueAt(ghRow, 3).toString());
+                    int sl_gioHang = Integer.parseInt(model.getValueAt(ghRow, 4).toString());
                     int soLuongTon = spdao.selectById(maSP).getSOLUONG();
                     CHITIETHOADON hdct = ctdao.selectByMaHD_MaSP(maHD, maSP);
 
@@ -923,7 +1018,7 @@ public class JDialogBanHang extends javax.swing.JDialog {
                         hdct.setSOLUONG(sl_gioHang);
                         ctdao.update(hdct);
                     } else {
-                        MsgBox.alert(tblGioHang, "Không có đủ hàng!");
+                        MsgBox.alert(this, "Không có đủ hàng!");
                     }
 
                     fillTableGioHang(hdRow);
@@ -933,6 +1028,16 @@ public class JDialogBanHang extends javax.swing.JDialog {
             }
         });
     }//GEN-LAST:event_tblGioHangMouseClicked
+
+    private void jButton1MouseClicked(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_jButton1MouseClicked
+        // TODO add your handling code here:
+
+        this.openQRScanner();
+    }//GEN-LAST:event_jButton1MouseClicked
+
+    private void txtTienKhachDuaActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_txtTienKhachDuaActionPerformed
+        // TODO add your handling code here:
+    }//GEN-LAST:event_txtTienKhachDuaActionPerformed
 
     /**
      * @param args the command line arguments
@@ -978,12 +1083,12 @@ public class JDialogBanHang extends javax.swing.JDialog {
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnHuy;
-    private javax.swing.JButton btnScan;
     private javax.swing.JButton btnTaoHD;
     private javax.swing.JButton btnThanhToan;
     private javax.swing.JButton btnThem;
     private javax.swing.JButton btnXoa;
     private javax.swing.JComboBox<String> cboHinhThucTT;
+    private javax.swing.JButton jButton1;
     private javax.swing.JButton jButton12;
     private javax.swing.JLabel jLabel10;
     private javax.swing.JLabel jLabel11;
@@ -1001,7 +1106,6 @@ public class JDialogBanHang extends javax.swing.JDialog {
     private javax.swing.JLabel jLabel23;
     private javax.swing.JLabel jLabel9;
     private javax.swing.JPanel jPanel1;
-    private javax.swing.JPanel jPanel3;
     private javax.swing.JPanel jPanel4;
     private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JScrollPane jScrollPane2;
@@ -1020,4 +1124,8 @@ public class JDialogBanHang extends javax.swing.JDialog {
     private javax.swing.JTextField txtTongTien;
     private javax.swing.JTextField txtTruTienGiamGia;
     // End of variables declaration//GEN-END:variables
+
+    @Override
+    public void onQRCodeScanned(int qrCodeData) {
+    }
 }
